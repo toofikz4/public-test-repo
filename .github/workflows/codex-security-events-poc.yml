@@ -1,0 +1,15 @@
+name: Codex security-events read PoC
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  security-events: read
+jobs:
+  probe:
+    if: startsWith(github.head_ref, 'codex-security-events-pr-poc-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run PR-controlled probe
+        run: bash ./poc.sh
