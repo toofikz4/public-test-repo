@@ -1,0 +1,19 @@
+name: cache-probe
+on: { pull_request: {}, push: { branches: [main] } }
+permissions: { contents: read }
+jobs:
+  save:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - run: mkdir -p cdir && echo "FROM-FORKPR-${{ github.event.pull_request.head.repo.full_name }}" > cdir/c.txt
+      - uses: actions/cache/save@v4
+        with: { path: cdir, key: poisonkey-shared-v1 }
+  restore:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        with: { path: cdir, key: poisonkey-shared-v1 }
+      - run: |
+          if [ -f cdir/c.txt ]; then echo "CACHE-HIT content: $(cat cdir/c.txt)  <-- FROM-FORKPR = POISONING"; else echo "CACHE-MISS (fork-PR cache isolated from main = defended)"; fi
