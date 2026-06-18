@@ -1,0 +1,19 @@
+name: oidc-probe
+on: { workflow_dispatch: {} }
+permissions: { id-token: write, contents: read }
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: GITHUB_TOKEN cross-repo reach
+        env: { GH: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          echo "own public-test-repo (expect 200): $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $GH" https://api.github.com/repos/toofikz4/public-test-repo)"
+          echo "OTHER private repo fgpat-outside SECRET.txt (expect 404): $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $GH" https://api.github.com/repos/toofikz4/fgpat-outside/contents/SECRET.txt)"
+          echo "OTHER private repo fgpat-scoped INSCOPE.txt (expect 404): $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $GH" https://api.github.com/repos/toofikz4/fgpat-scoped/contents/INSCOPE.txt)"
+          echo "tooforg org actions secrets (expect 403/404): $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $GH" https://api.github.com/orgs/tooforg/actions/secrets)"
+          echo "this-repo actions secrets via token (expect 403, no secrets perm): $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $GH" https://api.github.com/repos/toofikz4/public-test-repo/actions/secrets)"
+      - name: OIDC token claims
+        run: |
+          R=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=bb-probe")
+          echo "$R" | python3 -c "import sys,json;t=json.load(sys.stdin)['value'];import base64;p=t.split('.')[1];p+='='*(-len(p)%4);d=json.loads(base64.urlsafe_b64decode(p));print(json.dumps({k:d.get(k) for k in ['iss','sub','aud','repository','repository_owner','repository_id','repository_owner_id','ref','ref_type','environment','job_workflow_ref','workflow_ref','actor','actor_id','runner_environment','run_id']},indent=2))"
