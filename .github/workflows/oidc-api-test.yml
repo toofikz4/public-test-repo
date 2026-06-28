@@ -1,0 +1,44 @@
+name: OIDC Token vs GitHub API
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test-oidc-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test OIDC token against GitHub API
+        run: |
+          set +e
+          
+          # Get OIDC token with different audiences
+          for aud in "api://AzureADTokenExchange" "https://api.github.com" "https://github.com" "urn:github:actions"; do
+            echo "=== Audience: $aud ==="
+            TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$aud" | jq -r '.value // empty')
+            
+            if [ -n "$TOKEN" ]; then
+              echo "Token obtained (${#TOKEN} chars)"
+              # Test against GitHub REST API
+              REST_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: bearer $TOKEN" https://api.github.com/user)
+              echo "  REST /user: HTTP $REST_CODE"
+              
+              # Test against GitHub GraphQL
+              GQL_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: bearer $TOKEN" \
+                https://api.github.com/graphql -d '{"query":"{ viewer { login } }"}')
+              echo "  GraphQL: HTTP $GQL_CODE"
+              
+              # Decode and show audience claim
+              AUD=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | jq -r '.aud // empty' 2>/dev/null)
+              echo "  JWT aud: $AUD"
+            else
+              echo "  Token generation FAILED"
+            fi
+            echo ""
+          done
+          
+          echo "=== Also test: OIDC with the target GITHUB_TOKEN ==="
+          echo "GITHUB_TOKEN present: $(test -n "$GITHUB_TOKEN" && echo "YES (${#GITHUB_TOKEN} chars)" || echo NO)"
