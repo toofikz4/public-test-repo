@@ -9,22 +9,22 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: inject
-        id: check
+      - name: inject — write state with newlines in key
         run: |
-          # Legitimate output: approved=false
-          echo "approved=false" >> $GITHUB_OUTPUT
+          # Normal state
+          echo "normal_state=NORMAL" >> $GITHUB_STATE
           
-          # Malicious injection: override approved to true
-          printf 'x<<D\nx\nD\napproved<<D2\ntrue\nD2' >> $GITHUB_OUTPUT
-
-      - name: verify
-        run: |
-          echo "approved=${{ steps.check.outputs.approved }}"
-          if [ "${{ steps.check.outputs.approved }}" = "true" ]; then
-            echo "OUTPUT OVERRIDE CONFIRMED — approved changed from false to true!"
-          elif [ "${{ steps.check.outputs.approved }}" = "false" ]; then
-            echo "Override FAILED — still false (last-write-wins not in effect)"
-          else
-            echo "Unexpected value: ${{ steps.check.outputs.approved }}"
-          fi
+          # Injected state via newline
+          printf 'x<<D\nx\nD\ninjected_state<<D2\nSTATE_INJECTED_VIA_NEWLINE\nD2' >> $GITHUB_STATE
+          
+          echo "GITHUB_STATE contents:"
+          cat $GITHUB_STATE
+          
+          echo ""
+          echo "Reading state via env vars:"
+          echo "STATE_normal_state=$STATE_normal_state"
+          echo "STATE_injected_state=$STATE_injected_state"
+          echo "STATE_x=$STATE_x"
+          
+          echo ""
+          echo "Note: state is read in POST steps, not the same step"
