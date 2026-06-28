@@ -1,0 +1,63 @@
+name: Comprehensive Actions Security Test
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+jobs:
+  oidc-edge-cases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: OIDC audience edge cases
+        run: |
+          echo "=== OIDC audience tests ==="
+          
+          # Test 1: Empty audience
+          RESP=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=" 2>/dev/null)
+          echo "Empty audience: $(echo $RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("value","ERROR: "+str(d))[:20])' 2>/dev/null)"
+          
+          # Test 2: Very long audience (1000 chars)
+          LONG_AUD=$(python3 -c "print('A'*1000)")
+          RESP=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$LONG_AUD" 2>/dev/null)
+          echo "Long audience (1000): $(echo $RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("value","ERROR: "+str(d))[:20])' 2>/dev/null)"
+          
+          # Test 3: Newline in audience
+          RESP=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=test%0d%0aX-Injected: true" 2>/dev/null)
+          echo "Newline audience: $(echo $RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("value","ERROR: "+str(d))[:20])' 2>/dev/null)"
+          
+          # Test 4: Multiple audiences (array)
+          RESP=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=aud1&audience=aud2" 2>/dev/null)
+          echo "Multiple audiences: $(echo $RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); t=d.get("value","ERR"); p=t.split(".")[1]; import base64; cl=json.loads(base64.b64decode(p+"==").decode()); print("aud="+str(cl.get("aud")))' 2>/dev/null)"
+          
+          # Test 5: GITHUB_TOKEN as audience  
+          RESP=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.github.com" 2>/dev/null)
+          TOKEN=$(echo $RESP | python3 -c 'import json,sys; print(json.load(sys.stdin).get("value",""))' 2>/dev/null)
+          echo "github.com audience token: ${TOKEN:0:20}..."
+          
+          # Test if github.com audience token works against API
+          echo "github.com token vs API:"
+          curl -s -o /dev/null -w "  REST: %{http_code}" -H "Authorization: bearer $TOKEN" https://api.github.com/user
+          echo ""
+          curl -s -o /dev/null -w "  GraphQL: %{http_code}" -H "Authorization: bearer $TOKEN" \
+            https://api.github.com/graphql -d '{"query":"{ viewer { login } }"}'
+          echo ""
+          
+      - name: Check GITHUB_TOKEN in env
+        run: |
+          echo "GITHUB_TOKEN present: $(test -n "$GITHUB_TOKEN" && echo YES || echo NO)"
+          echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+          echo "GITHUB_TOKEN prefix: ${GITHUB_TOKEN:0:4}"
+          
+      - name: List accessible Actions secrets (should be empty for public repos)
+        run: |
+          echo "=== Secrets accessible in this step ==="
+          # Env vars that look like secrets (containing ghs_ or eyJ)
+          env | grep -E "^(GITHUB_TOKEN|ACTIONS_)" | sed 's/=ghs_.*/=ghs_[PRESENT]/' | sed 's/=eyJ.*/=eyJ[PRESENT]/'
