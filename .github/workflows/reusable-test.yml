@@ -1,0 +1,30 @@
+name: Reusable Workflow - Secret Probe
+on:
+  workflow_call:
+    secrets:
+      TEST_SECRET:
+        required: false
+
+jobs:
+  probe-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe secrets context
+        env:
+          TEST_SECRET: ${{ secrets.TEST_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Secret probe from reusable workflow ==="
+          echo "TEST_SECRET length: ${#TEST_SECRET}"
+          echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          # Check if we can access secrets not declared in workflow_call
+          echo "=== Undeclared secret probe ==="
+          echo "secrets.COPILOT_TOKEN length: ${#COPILOT_TOKEN}"
+        env:
+          COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+
+      - name: Check OIDC
+        run: |
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL: $ACTIONS_ID_TOKEN_REQUEST_URL"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN length: ${#ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
