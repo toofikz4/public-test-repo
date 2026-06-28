@@ -1,0 +1,32 @@
+name: Stop Commands V2 — New Secret After Injection
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 — inject stop-commands
+        run: |
+          # This simulates untrusted input being logged
+          echo "::stop-commands::injection-resume-token-abc123"
+          echo "Step 1: commands should be stopped now"
+          
+      - name: Step 2 — try to mask a NEW secret (should fail if commands stopped)
+        run: |
+          # This add-mask should be IGNORED because commands are stopped
+          echo "::add-mask::NEW_SECRET_UNMASKED_IF_VULN"
+          echo "Step 2: The secret is: NEW_SECRET_UNMASKED_IF_VULN"
+          echo "If you see the full string above, the injection WORKED"
+          
+      - name: Step 3 — resume commands and re-test
+        run: |
+          # Resume commands
+          echo "::injection-resume-token-abc123::"
+          # Now try masking again
+          echo "::add-mask::POST_RESUME_SECRET_12345"
+          echo "Step 3 post-resume: POST_RESUME_SECRET_12345"
+          echo "If masked above, commands resumed correctly"
