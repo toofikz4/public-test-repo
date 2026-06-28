@@ -1,0 +1,45 @@
+name: BASH_ENV Injection Test
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-bashenv:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 - Create payload and set BASH_ENV
+        run: |
+          # Create a payload script that sets a marker variable
+          echo 'export BASHENV_INJECTION_MARKER=INJECTED_SUCCESSFULLY_12345' > /tmp/bashenv_payload.sh
+          echo 'echo "[BASH_ENV] Payload sourced!" >&2' >> /tmp/bashenv_payload.sh
+          
+          # Write BASH_ENV to GITHUB_ENV
+          echo "BASH_ENV=/tmp/bashenv_payload.sh" >> $GITHUB_ENV
+          
+          echo "Step 1: Set BASH_ENV=/tmp/bashenv_payload.sh via GITHUB_ENV"
+
+      - name: Step 2 - Check if BASH_ENV was sourced
+        run: |
+          echo "Step 2: Checking BASH_ENV injection..."
+          echo "BASH_ENV=$BASH_ENV"
+          echo "BASHENV_INJECTION_MARKER=$BASHENV_INJECTION_MARKER"
+          
+          if [ "$BASHENV_INJECTION_MARKER" = "INJECTED_SUCCESSFULLY_12345" ]; then
+            echo "FINDING: BASH_ENV injection WORKS - payload was sourced before this step"
+          else
+            echo "DEFENDED: BASH_ENV injection did not work"
+          fi
+
+      - name: Step 3 - Also test ENV (sh equivalent)
+        shell: sh
+        run: |
+          echo "Step 3 (sh): ENV=$ENV"
+          echo "BASHENV_INJECTION_MARKER=$BASHENV_INJECTION_MARKER"
+
+      - name: Step 4 - Check blocked vars for comparison
+        run: |
+          echo "Step 4: NODE_OPTIONS=$NODE_OPTIONS"
+          echo "BASH_ENV=$BASH_ENV"
+          echo "All GITHUB_ vars count: $(env | grep -c GITHUB_)"
