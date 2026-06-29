@@ -1,0 +1,47 @@
+name: Token Leakage Deep Test
+on: workflow_dispatch
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  token-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprehensive token/secret environment probe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== GITHUB_TOKEN characteristics ==="
+          echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+          echo "GITHUB_TOKEN prefix: ${GITHUB_TOKEN:0:4}"
+          echo "GITHUB_TOKEN type: $(echo $GITHUB_TOKEN | cut -c1-4)"
+          
+          echo "=== Token API test ==="
+          curl -sf -H "Authorization: bearer $GITHUB_TOKEN" https://api.github.com/user 2>/dev/null | jq -r ".login" || echo "API call failed"
+          
+          echo "=== OIDC token via env ==="
+          echo "OIDC_URL length: ${#ACTIONS_ID_TOKEN_REQUEST_URL}"
+          echo "OIDC_TOKEN length: ${#ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
+          
+          echo "=== Process listing for token exposure ==="
+          # Check if any running process has tokens in its command line
+          ps aux | grep -c "ghp_\|ghs_\|ghu_\|github_pat_" || true
+          
+          echo "=== /proc/self/environ token check ==="
+          cat /proc/self/environ | tr "\0" "\n" | grep -c "TOKEN\|SECRET\|KEY\|PASS" || true
+          
+          echo "=== Network services ==="
+          ss -tlnp 2>/dev/null | head -5 || true
+          
+          echo "=== DNS resolution of internal hosts ==="
+          for host in metadata.google.internal 169.254.169.254 actions-results-receiver.actions.githubusercontent.com; do
+            IP=$(getent hosts $host 2>/dev/null | awk "{print \$1}")
+            echo "$host -> ${IP:-NXDOMAIN}"
+          done
+          
+          echo "=== Runner identity ==="
+          whoami
+          id
+          hostname
+          
+          echo "=== DONE ==="
