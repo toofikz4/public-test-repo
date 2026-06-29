@@ -1,0 +1,28 @@
+name: env-branch-test
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: protected-prod
+    steps:
+      - name: Print ref info
+        run: |
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_REF_NAME=$GITHUB_REF_NAME"
+          echo "GITHUB_REF_TYPE=$GITHUB_REF_TYPE"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+      - name: Check secret
+        run: |
+          if [ -n "$PROTECTED_SECRET" ]; then
+            echo "SECRET_PRESENT=YES length=${#PROTECTED_SECRET}"
+            echo "SECRET_HASH=$(echo -n "$PROTECTED_SECRET" | sha256sum | cut -c1-16)"
+          else
+            echo "SECRET_PRESENT=NO"
+          fi
+        env:
+          PROTECTED_SECRET: ${{ secrets.PROTECTED_SECRET }}
