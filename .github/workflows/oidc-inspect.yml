@@ -1,0 +1,38 @@
+name: OIDC Token Inspection
+on: workflow_dispatch
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  inspect-oidc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get OIDC token and inspect claims
+        run: |
+          # Request OIDC token with default audience
+          OIDC_URL="$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://default"
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$OIDC_URL" | jq -r .value)
+          
+          # Decode JWT claims (base64 decode the payload)
+          CLAIMS=$(echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null || echo "$TOKEN" | cut -d. -f2 | tr -d = | base64 -d 2>/dev/null)
+          echo "=== OIDC Claims (default audience) ==="
+          echo "$CLAIMS" | jq . 2>/dev/null || echo "$CLAIMS"
+          
+          # Request with custom audience
+          OIDC_URL2="$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://evil.example.com"
+          TOKEN2=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$OIDC_URL2" | jq -r .value)
+          CLAIMS2=$(echo "$TOKEN2" | cut -d. -f2 | base64 -d 2>/dev/null || echo "$TOKEN2" | cut -d. -f2 | tr -d = | base64 -d 2>/dev/null)
+          echo "=== OIDC Claims (evil audience) ==="
+          echo "$CLAIMS2" | jq . 2>/dev/null || echo "$CLAIMS2"
+          
+          # Try to request with manipulated subject
+          OIDC_URL3="$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://default&sub=repo:microsoft/vscode:ref:refs/heads/main"
+          TOKEN3=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$OIDC_URL3")
+          echo "=== Response with manipulated sub ==="
+          echo "$TOKEN3" | jq . 2>/dev/null || echo "$TOKEN3"
+          
+          # Write to step summary
+          echo "## OIDC Token Claims" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          echo "$CLAIMS" | jq . >> $GITHUB_STEP_SUMMARY 2>/dev/null
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
