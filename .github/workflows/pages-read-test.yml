@@ -1,0 +1,26 @@
+name: Pages File Read Test
+on: workflow_dispatch
+permissions:
+  pages: write
+  id-token: write
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Pages token and env
+        run: |
+          echo "=== Pages environment vars ==="
+          env | grep -i pages | sort
+          echo "=== GITHUB_TOKEN scopes ==="
+          curl -sI -H "Authorization: bearer $GITHUB_TOKEN" https://api.github.com/user 2>/dev/null | grep -i x-oauth
+          echo "=== Can Pages token read other repo ==="
+          curl -sf -o /dev/null -w "HTTP:%{http_code}" -H "Authorization: bearer $GITHUB_TOKEN" \
+            https://api.github.com/repos/tooforg/private-test-repo 2>/dev/null || echo "failed"
+          echo
+          echo "=== DONE ==="
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
