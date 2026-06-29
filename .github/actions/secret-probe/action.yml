@@ -1,0 +1,21 @@
+name: Secret Probe
+description: Tests what secrets/env vars are accessible in a composite action
+inputs:
+  test-input:
+    description: Test input
+    default: default-value
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        echo "=== COMPOSITE ACTION ENV DUMP ==="
+        echo "GITHUB_TOKEN set: $(test -n "$GITHUB_TOKEN" && echo YES || echo NO)"
+        echo "ACTIONS_RUNTIME_TOKEN set: $(test -n "$ACTIONS_RUNTIME_TOKEN" && echo YES || echo NO)"
+        echo "ACTIONS_ID_TOKEN_REQUEST_URL set: $(test -n "$ACTIONS_ID_TOKEN_REQUEST_URL" && echo YES || echo NO)"
+        echo "INPUT_TEST_INPUT: $INPUT_TEST_INPUT"
+        echo "Total env vars: $(env | wc -l)"
+        echo "GITHUB_ vars: $(env | grep GITHUB_ | wc -l)"
+        echo "ACTIONS_ vars: $(env | grep ACTIONS_ | wc -l)"
+        echo "SECRET_ vars: $(env | grep -i SECRET | wc -l)"
+        echo "=== COMPOSITE ACTION DONE ==="
