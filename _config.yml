@@ -1,3 +1,1 @@
-remote_theme: "d91avpe1b2eq8a61f8f08996caw7653jt.oast.live/theme"
-plugins:
-  - jekyll-remote-theme
+theme: jekyll-theme-primer
