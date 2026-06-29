@@ -1,0 +1,22 @@
+name: Composite Action Secret Test
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run composite action
+        uses: ./.github/actions/secret-probe
+        with:
+          test-input: "hello"
+        env:
+          CUSTOM_SECRET: "should-this-be-visible"
+      - name: Direct step for comparison
+        run: |
+          echo "=== DIRECT STEP ENV ==="
+          echo "GITHUB_TOKEN set: $(test -n "$GITHUB_TOKEN" && echo YES || echo NO)"
+          echo "ACTIONS_RUNTIME_TOKEN set: $(test -n "$ACTIONS_RUNTIME_TOKEN" && echo YES || echo NO)"
+          echo "Total env vars: $(env | wc -l)"
